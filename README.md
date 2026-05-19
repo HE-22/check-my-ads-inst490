@@ -3,9 +3,9 @@
 <img width="3456" height="1690" alt="image" src="https://github.com/user-attachments/assets/5ccae9e4-8eb8-4e51-9e70-e5e5aa25f7b2" />
 
 
-This is my INST490 version of a small Check My Ads data project.
+This is our INST490 version of a small Check My Ads data project.
 
-The basic issue I wanted to solve is that a Google Ads CSV export is not always stable. If you export a placement report today and then export the same report again later, some impression numbers can be lower. If the database only keeps the newest copy, there is no easy way to prove what changed.
+The basic issue we wanted to solve is that a Google Ads CSV export is not always stable. If you export a placement report today and then export the same report again later, some impression numbers can be lower. If the database only keeps the newest copy, there is no easy way to prove what changed.
 
 So this project saves each CSV as its own snapshot and compares the snapshots later.
 
@@ -99,4 +99,4 @@ lambdas/google-ads/tests/
 
 ## Notes
 
-This repo is intentionally separated from the original class/client codebase. It only includes the part I worked on for snapshot tracking and anomaly detection, with fake sample data and local Docker settings.
+This repo is intentionally separated from the original class/client codebase. It only includes the part we worked on for snapshot tracking and anomaly detection, with fake sample data and local Docker settings.

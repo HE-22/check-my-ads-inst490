@@ -2,11 +2,11 @@
 
 This file is just a short write-up of the idea behind the project.
 
-## What I was trying to catch
+## What we were trying to catch
 
 If a Google Ads placement report gets exported more than once, the old numbers can change. The problem is that a normal database import usually updates the existing row, so the older number disappears.
 
-For this project I wanted the database to keep the history instead.
+For this project we wanted the database to keep the history instead.
 
 ## The approach
 

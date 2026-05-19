@@ -1,5 +1,6 @@
 import json
 import os
+from io import StringIO
 from datetime import datetime
 
 import boto3
@@ -7,9 +8,8 @@ import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_values
 
-PLATFORM = os.environ.get('PLATFORM', 'google-ads')
-SECRET_NAME = os.environ.get('SECRET_NAME', 'example/google-ads/postgres')
-S3_BUCKET = os.environ.get('S3_BUCKET_NAME', 'example-google-ads-csv-bucket')
+PLATFORM = os.getenv('PLATFORM', 'google-ads')
+SECRET_NAME = os.getenv('SECRET_NAME', 'example/google-ads/postgres')
 
 _db_credentials = None
 _s3_client = None
@@ -42,27 +42,30 @@ def get_db_credentials():
 
 def lambda_handler(event, context):
     try:
-        s3_event = event['Records'][0]['s3']
-        bucket_name = s3_event['bucket']['name']
-        file_key = s3_event['object']['key']
+        bucket_name, file_key = get_s3_file_from_event(event)
 
         if not file_key.startswith(f'{PLATFORM}/uploads/'):
             return {'statusCode': 400, 'body': 'File uploaded to wrong folder'}
 
-        csv_content = download_csv_from_s3(bucket_name, file_key)
-        df = parse_google_ads_csv(csv_content, file_key)
+        csv_text = download_csv_from_s3(bucket_name, file_key)
+        rows = parse_google_ads_csv(csv_text, file_key)
 
-        if not df.empty:
-            insert_into_database(df)
+        if not rows.empty:
+            save_rows(rows)
 
         move_to_processed(bucket_name, file_key)
 
-        print(f"Processed {len(df)} rows from {file_key}")
-        return {'statusCode': 200, 'body': json.dumps(f'Processed {len(df)} rows')}
+        print(f"Processed {len(rows)} rows from {file_key}")
+        return {'statusCode': 200, 'body': json.dumps(f'Processed {len(rows)} rows')}
 
     except Exception as exc:
         print(f"Error: {str(exc)}")
         return {'statusCode': 500, 'body': json.dumps(f'Error: {str(exc)}')}
+
+
+def get_s3_file_from_event(event):
+    s3_event = event['Records'][0]['s3']
+    return s3_event['bucket']['name'], s3_event['object']['key']
 
 
 def download_csv_from_s3(bucket_name, file_key):
@@ -70,10 +73,10 @@ def download_csv_from_s3(bucket_name, file_key):
     return response['Body'].read().decode('utf-8')
 
 
-def parse_date_from_metadata(line):
-    line = line.strip().strip('"')
-    date_str = line.split(' - ')[0].strip().rstrip(',')
-    return datetime.strptime(date_str, '%B %d, %Y').date()
+def get_report_date(date_line):
+    clean_line = date_line.strip().strip('"')
+    start_date = clean_line.split(' - ')[0].strip().rstrip(',')
+    return datetime.strptime(start_date, '%B %d, %Y').date()
 
 
 def parse_google_ads_csv(csv_content, file_key):
@@ -81,27 +84,33 @@ def parse_google_ads_csv(csv_content, file_key):
     if len(lines) < 3:
         raise ValueError(f"CSV has only {len(lines)} lines, expected at least 3")
 
-    report_date = parse_date_from_metadata(lines[1])
-    data_content = '\n'.join(lines[2:])
-    df = pd.read_csv(pd.io.common.StringIO(data_content), dtype={'Impr.': 'Int64'})
-    df = df.dropna(how='all')
+    report_date = get_report_date(lines[1])
+    data_rows = '\n'.join(lines[2:])
+    rows = pd.read_csv(StringIO(data_rows), dtype={'Impr.': 'Int64'})
+    rows = rows.dropna(how='all')
 
-    df = df.rename(columns={
+    rows = rows.rename(columns={
         'Performance Max placement': 'placement_name',
         'Performance Max placement URL': 'placement_url',
         'Performance Max placement type': 'placement_type',
         'Impr.': 'impressions',
     })
 
-    df['placement_type'] = df['placement_type'].str.strip().replace('--', 'Unspecified')
-    df['impressions'] = df['impressions'].fillna(0).astype(int)
-    df['platform'] = PLATFORM
-    df['report_date'] = report_date
-    df['source_file'] = file_key
-    df['snapshot_at'] = datetime.utcnow()
-    df['uploaded_at'] = datetime.utcnow()
+    needed_columns = {'placement_name', 'placement_url', 'placement_type', 'impressions'}
+    missing_columns = needed_columns - set(rows.columns)
+    if missing_columns:
+        raise ValueError(f"Missing expected columns: {sorted(missing_columns)}")
 
-    return df
+    now = datetime.utcnow()
+    rows['placement_type'] = rows['placement_type'].str.strip().replace('--', 'Unspecified')
+    rows['impressions'] = rows['impressions'].fillna(0).astype(int)
+    rows['platform'] = PLATFORM
+    rows['report_date'] = report_date
+    rows['source_file'] = file_key
+    rows['snapshot_at'] = now
+    rows['uploaded_at'] = now
+
+    return rows
 
 
 def get_db_connection():
@@ -115,7 +124,7 @@ def get_db_connection():
     )
 
 
-def insert_into_database(df):
+def save_rows(rows):
     conn = get_db_connection()
     try:
         cur = conn.cursor()
@@ -132,7 +141,7 @@ def insert_into_database(df):
             (row['placement_name'], row['placement_url'], row['placement_type'],
              row['impressions'], row['platform'], row['report_date'],
              row['source_file'], row['snapshot_at'], row['uploaded_at'])
-            for _, row in df.iterrows()
+            for _, row in rows.iterrows()
         ])
         conn.commit()
         cur.close()

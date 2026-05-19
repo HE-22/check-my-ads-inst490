@@ -1,68 +1,99 @@
-# Google Ads Snapshot Anomaly Detection
+# check-my-ads-inst490
 
-Standalone demo of a snapshot-based Google Ads CSV pipeline that detects retroactive changes in reported placement impressions.
+This is my INST490 version of a small Check My Ads data project.
 
-The original PR converted a pipeline from "latest file overwrites prior data" into "every CSV export becomes an immutable snapshot." A PostgreSQL view compares consecutive snapshots and a Grafana dashboard surfaces impression drops.
+The basic issue I wanted to solve is that a Google Ads CSV export is not always stable. If you export a placement report today and then export the same report again later, some impression numbers can be lower. If the database only keeps the newest copy, there is no easy way to prove what changed.
 
-## What this shows
+So this project saves each CSV as its own snapshot and compares the snapshots later.
 
-- Parses Google Ads Performance Max placement CSV exports.
-- Stores each export with a `snapshot_at` timestamp.
-- Preserves repeated exports for the same `report_date` instead of overwriting them.
-- Uses SQL window functions to compare consecutive snapshots.
-- Visualizes detected drops in Grafana.
-- Includes synthetic sample CSVs that simulate impression reductions over time.
+## What it does
 
-## Architecture
+- reads Google Ads placement CSV files
+- stores each file as a separate snapshot in Postgres
+- keeps the original report date from the CSV
+- keeps the snapshot time, which is when that file was loaded
+- compares one snapshot to the next with a SQL view
+- shows the drops in a Grafana dashboard
 
-```text
-CSV export -> parser -> PostgreSQL snapshots -> SQL change view -> Grafana dashboard
-```
+The sample CSV files are fake data. They are only here so the project can be run without using real campaign exports.
 
-The key schema decision is the uniqueness constraint:
+## How the data is stored
+
+The important part is that the table does not treat this as the same row forever:
 
 ```sql
 UNIQUE(platform, report_date, placement_url, source_file)
 ```
 
-That allows multiple exports for the same placement and report date to coexist when they came from different source files.
+That means this can happen:
 
-## Run locally
+```text
+same placement
+same report date
+different CSV file
+different saved row
+```
+
+Then the view `google_ads_placement_snapshot_changes` compares the rows in time order.
+
+## Run it
+
+Start Postgres and Grafana:
 
 ```bash
 docker compose up -d
+```
+
+Set up Python:
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+Load the three sample snapshots:
+
+```bash
 python scripts/load-snapshots.py \
   lambdas/google-ads/tests/snapshot_day1.csv \
   lambdas/google-ads/tests/snapshot_day5.csv \
   lambdas/google-ads/tests/snapshot_day12.csv
 ```
 
-Open Grafana at `http://localhost:3001`.
-
-Credentials:
+Open Grafana:
 
 ```text
-username: admin
-password: admin
+http://localhost:3001
 ```
 
-Open the `Google Ads - Anomaly Detection` dashboard and use the August-September 2025 time range.
-
-## Repository layout
+Login:
 
 ```text
-db/schema.sql                              PostgreSQL table, indexes, and anomaly view
-docker-compose.yml                         Local Postgres + Grafana
-grafana/anomaly-detection-dashboard.json   Grafana dashboard from the implementation
-lambdas/google-ads/lambda_function.py      AWS Lambda-style CSV parser and loader
-lambdas/google-ads/tests/*.csv             Synthetic snapshot test data
-scripts/load-snapshots.py                  Local loader for the sample snapshots
-docs/architecture/anomaly-detection.md     Implementation notes
+admin / admin
+```
+
+The dashboard is called `check-my-ads-inst490`. The sample data is dated around August and September 2025, so use that time range if the panels look empty.
+
+## Files
+
+```text
+db/schema.sql
+  Postgres table and the SQL view that compares snapshots
+
+lambdas/google-ads/lambda_function.py
+  CSV parsing code plus a Lambda-style S3 handler
+
+scripts/load-snapshots.py
+  Local script that loads the sample CSV files into Postgres
+
+grafana/anomaly-detection-dashboard.json
+  Dashboard for the snapshot comparison view
+
+lambdas/google-ads/tests/
+  Fake CSV exports for testing the idea locally
 ```
 
 ## Notes
 
-This repo is intentionally public-safe: it contains only the anomaly detection implementation and synthetic data. It does not include private infrastructure docs, real cloud identifiers, real campaign data, or client-specific deployment settings.
+This repo is intentionally separated from the original class/client codebase. It only includes the part I worked on for snapshot tracking and anomaly detection, with fake sample data and local Docker settings.

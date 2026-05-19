@@ -25,8 +25,8 @@
   ],
   "id": null,
   "uid": null,
-  "title": "Google Ads - Anomaly Detection",
-  "description": "Detects retroactive data manipulation in Google Ads CSV exports by comparing snapshots over time",
+  "title": "check-my-ads-inst490",
+  "description": "INST490 dashboard for comparing Google Ads CSV snapshots over time",
   "tags": [
     "google-ads",
     "anomaly-detection",

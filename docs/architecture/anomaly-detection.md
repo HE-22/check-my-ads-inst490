@@ -1,59 +1,32 @@
-# Snapshot-Based Anomaly Detection
+# Anomaly Detection Notes
 
-## Problem
+This file is just a short write-up of the idea behind the project.
 
-Google Ads CSV exports can change historical placement metrics when the same report is exported on different days. If a pipeline stores only the latest copy of each placement/date pair, earlier values are overwritten and the change is impossible to audit.
+## What I was trying to catch
 
-## Implementation
+If a Google Ads placement report gets exported more than once, the old numbers can change. The problem is that a normal database import usually updates the existing row, so the older number disappears.
 
-The pipeline stores every CSV export as a snapshot:
+For this project I wanted the database to keep the history instead.
+
+## The approach
+
+Each CSV load gets a `snapshot_at` timestamp. The source file name is also saved. A placement can appear multiple times for the same report date as long as it came from a different CSV file.
+
+The view uses `LAG()` to look at the previous snapshot for the same placement URL and report date.
+
+If the new impression count is lower than the previous one, the view calculates:
+
+- how many impressions dropped
+- the percent drop
+- which source file had the old number
+- which source file had the new number
+
+## Local test data
+
+The three CSV files all use the same report date:
 
 ```text
-same placement + same report_date + different source_file = separate historical record
+August 25, 2025
 ```
 
-Each parsed row receives:
-
-- `platform`
-- `report_date`
-- `source_file`
-- `snapshot_at`
-- `uploaded_at`
-
-The anomaly view uses `LAG()` over `(platform, placement_url, report_date)` to compare each snapshot against the previous snapshot for the same placement and reporting date.
-
-## Detection View
-
-`google_ads_placement_snapshot_changes` returns:
-
-- previous and current snapshot timestamps
-- previous and current source file names
-- previous and current impression counts
-- signed impression change
-- drop amount
-- drop percentage
-
-Rows where `drop_amount > 0` represent retroactive impression decreases.
-
-## Dashboard
-
-The Grafana dashboard includes:
-
-- total detected drops
-- total impressions lost
-- number of affected placements
-- average drop percentage
-- detailed placement table
-- time series showing each placement's snapshot history
-
-## Local Demonstration
-
-The sample CSVs all represent the same report date, `August 25, 2025`, exported on simulated snapshot dates:
-
-| File | Simulated snapshot |
-|---|---|
-| `snapshot_day1.csv` | 2025-08-26 |
-| `snapshot_day5.csv` | 2025-08-31 |
-| `snapshot_day12.csv` | 2025-09-05 |
-
-Some placements drop to zero, some partially decrease, and some remain unchanged. That gives the dashboard realistic test coverage without including any private campaign data.
+The loader pretends they were saved on different days. Some rows go down, some stay the same, and some go all the way to zero. That is enough to test the SQL and the dashboard without putting real data in this public repo.

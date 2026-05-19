@@ -1,0 +1,16 @@
+apiVersion: 1
+
+datasources:
+  - name: local-postgres
+    uid: local-postgres
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    user: ads_demo
+    secureJsonData:
+      password: ads_demo
+    jsonData:
+      database: campaign_data
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false
